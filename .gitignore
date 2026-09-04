@@ -1,0 +1,11 @@
+# Credenciais — nunca versionar
+vm12.txt
+*.env
+!*.env.example
+*.pem
+*.key
+
+# Tooling local / artefatos de sessão
+.claude/
+.serena/
+logs.txt
