@@ -1,4 +1,4 @@
-ARG SGLANG_VERSION=v0.5.18
+ARG SGLANG_VERSION=v0.5.21
 FROM lmsysorg/sglang:${SGLANG_VERSION}
 
 # certbot + plugin DNS-01 Cloudflare via apt (evita depender de pip em

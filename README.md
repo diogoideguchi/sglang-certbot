@@ -66,7 +66,7 @@ versões → tag) sem publicar:
 Build manual (sem tag automática):
 
 ```bash
-docker build --build-arg SGLANG_VERSION=v0.5.18 \
+docker build --build-arg SGLANG_VERSION=v0.5.21 \
   -t <seu-registry>/sglang-certbot:dev -f proxy/image/Dockerfile proxy/image/
 ```
 

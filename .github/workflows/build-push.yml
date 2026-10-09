@@ -54,6 +54,11 @@ jobs:
           sglang_ver="$(docker run --rm --entrypoint pip "$BUILD_TAG" show sglang | awk '/^Version:/{print $2}')"
           certbot_ver="$(docker run --rm --entrypoint certbot "$BUILD_TAG" --version | awk '{print $2}')"
           [[ -n "$sglang_ver" && -n "$certbot_ver" ]] || { echo "falha ao extrair versões (sglang='$sglang_ver' certbot='$certbot_ver')"; exit 1; }
+          # Regra de nomeação: <versão sglang>.<versão certbot>, só dígitos e
+          # pontos (barra builds dev/nightly com +local ou sufixos).
+          expected_sglang="$(sed -n 's/^ARG SGLANG_VERSION=v//p' proxy/image/Dockerfile)"
+          [[ "$sglang_ver" == "$expected_sglang" ]] || { echo "sglang na imagem ($sglang_ver) difere do ARG SGLANG_VERSION do Dockerfile ($expected_sglang)"; exit 1; }
+          [[ "$sglang_ver.$certbot_ver" =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo "tag fora da regra <sglang>.<certbot>: '$sglang_ver.$certbot_ver'"; exit 1; }
           echo "sglang_ver=$sglang_ver" >> "$GITHUB_OUTPUT"
           echo "certbot_ver=$certbot_ver" >> "$GITHUB_OUTPUT"
           echo "tag=$sglang_ver.$certbot_ver" >> "$GITHUB_OUTPUT"
