@@ -33,7 +33,28 @@ CERT_PERSIST_DIR="${CERT_PERSIST_DIR:-/workspace/certbot}"
 CERT_RENEW_INTERVAL_SECONDS="${CERT_RENEW_INTERVAL_SECONDS:-43200}"  # 12h
 SGLANG_CONTAINER_PORT="${SGLANG_CONTAINER_PORT:-8000}"
 
-mkdir -p "$CERT_PERSIST_DIR"
+# Network volume da RunPod (/workspace) não aceita chmod 600 (EPERM) e tem
+# POSIX limitado (locks, rename) — certbot faz chmod/lockf no config-dir.
+# Por isso o certbot roda em disco local do container e o volume só guarda
+# um tar.gz do config-dir (arquivo comum, sem depender de permissões).
+CERTBOT_LOCAL_DIR="/root/certbot"
+CERT_ARCHIVE="${CERT_PERSIST_DIR}/${SGLANG_TLS_DOMAIN}.tar.gz"
+
+mkdir -p "$CERT_PERSIST_DIR" "${CERTBOT_LOCAL_DIR}/config"
+
+if [[ -f "$CERT_ARCHIVE" ]]; then
+  log "restaurando estado do certbot de ${CERT_ARCHIVE}"
+  tar -xzpf "$CERT_ARCHIVE" -C "${CERTBOT_LOCAL_DIR}/config" \
+    || die "falha ao extrair ${CERT_ARCHIVE} — arquivo corrompido? remova-o pra forçar nova emissão"
+fi
+
+# Salva o config-dir local no volume (tmp + mv pra não deixar tar.gz parcial).
+persist_certbot_state() {
+  if ! { tar -czf "${CERT_ARCHIVE}.tmp" -C "${CERTBOT_LOCAL_DIR}/config" . \
+         && mv -f "${CERT_ARCHIVE}.tmp" "$CERT_ARCHIVE"; }; then
+    log "AVISO: falha ao salvar estado do certbot em ${CERT_ARCHIVE} (cert segue válido localmente)"
+  fi
+}
 
 public_port_var="RUNPOD_TCP_PORT_${SGLANG_CONTAINER_PORT}"
 public_port="${!public_port_var:-<não encontrada em ${public_port_var}>}"
@@ -43,7 +64,7 @@ log "DNS (A record) não carrega porta — o client precisa saber essa porta por
 # ---------------------------------------------------------------------------
 # (b) cloudflare.ini pra plugin dns-cloudflare do certbot
 # ---------------------------------------------------------------------------
-CF_INI="${CERT_PERSIST_DIR}/cloudflare.ini"
+CF_INI="${CERTBOT_LOCAL_DIR}/cloudflare.ini"
 umask 077
 cat > "$CF_INI" <<EOF
 dns_cloudflare_api_token = ${CLOUDFLARE_API_TOKEN}
@@ -101,15 +122,15 @@ fi
 certbot_common_args=(
   --non-interactive --agree-tos
   --email "$CERTBOT_EMAIL"
-  --config-dir "${CERT_PERSIST_DIR}/config"
-  --work-dir "${CERT_PERSIST_DIR}/work"
-  --logs-dir "${CERT_PERSIST_DIR}/logs"
+  --config-dir "${CERTBOT_LOCAL_DIR}/config"
+  --work-dir "${CERTBOT_LOCAL_DIR}/work"
+  --logs-dir "${CERTBOT_LOCAL_DIR}/logs"
 )
 
-live_cert="${CERT_PERSIST_DIR}/config/live/${SGLANG_TLS_DOMAIN}/fullchain.pem"
+live_cert="${CERTBOT_LOCAL_DIR}/config/live/${SGLANG_TLS_DOMAIN}/fullchain.pem"
 
 if [[ -f "$live_cert" ]]; then
-  log "certificado existente encontrado em ${CERT_PERSIST_DIR}, tentando renovar (no-op se ainda válido)"
+  log "certificado existente restaurado de ${CERT_ARCHIVE}, tentando renovar (no-op se ainda válido)"
   certbot renew "${certbot_common_args[@]}" \
     --cert-name "$SGLANG_TLS_DOMAIN" \
     || log "AVISO: renovação falhou, seguindo com o certificado existente (pode estar perto de expirar)"
@@ -120,17 +141,18 @@ else
       --dns-cloudflare-credentials "$CF_INI" \
       --dns-cloudflare-propagation-seconds 30 \
       -d "$SGLANG_TLS_DOMAIN"; then
-    die "emissão do certificado falhou pra ${SGLANG_TLS_DOMAIN} — abortando start (TLS é requisito, container não sobe sem cert; ver logs certbot acima e em ${CERT_PERSIST_DIR}/logs)"
+    die "emissão do certificado falhou pra ${SGLANG_TLS_DOMAIN} — abortando start (TLS é requisito, container não sobe sem cert; ver logs certbot acima e em ${CERTBOT_LOCAL_DIR}/logs)"
   fi
 fi
 
 [[ -f "$live_cert" ]] || die "certificado ainda não existe em ${live_cert} após emissão/renovação — estado inesperado"
+persist_certbot_state
 
 # ---------------------------------------------------------------------------
 # (e) Exporta paths do cert/key pro comando do usuário consumir
 # ---------------------------------------------------------------------------
-export SGLANG_SSL_CERTFILE="${CERT_PERSIST_DIR}/config/live/${SGLANG_TLS_DOMAIN}/fullchain.pem"
-export SGLANG_SSL_KEYFILE="${CERT_PERSIST_DIR}/config/live/${SGLANG_TLS_DOMAIN}/privkey.pem"
+export SGLANG_SSL_CERTFILE="${CERTBOT_LOCAL_DIR}/config/live/${SGLANG_TLS_DOMAIN}/fullchain.pem"
+export SGLANG_SSL_KEYFILE="${CERTBOT_LOCAL_DIR}/config/live/${SGLANG_TLS_DOMAIN}/privkey.pem"
 log "TLS pronto: SGLANG_SSL_CERTFILE=${SGLANG_SSL_CERTFILE}"
 log "dica: adicione --ssl-certfile \"\$SGLANG_SSL_CERTFILE\" --ssl-keyfile \"\$SGLANG_SSL_KEYFILE\" --enable-ssl-refresh ao seu comando de start pra hot-reload sem restart"
 
@@ -141,8 +163,11 @@ log "dica: adicione --ssl-certfile \"\$SGLANG_SSL_CERTFILE\" --ssl-keyfile \"\$S
   while true; do
     sleep "$CERT_RENEW_INTERVAL_SECONDS"
     log "[renew-loop] checando renovação de ${SGLANG_TLS_DOMAIN}"
-    certbot renew "${certbot_common_args[@]}" --cert-name "$SGLANG_TLS_DOMAIN" \
-      || log "[renew-loop] AVISO: tentativa de renovação falhou, tentando de novo no próximo ciclo"
+    if certbot renew "${certbot_common_args[@]}" --cert-name "$SGLANG_TLS_DOMAIN"; then
+      persist_certbot_state
+    else
+      log "[renew-loop] AVISO: tentativa de renovação falhou, tentando de novo no próximo ciclo"
+    fi
   done
 ) &
 disown

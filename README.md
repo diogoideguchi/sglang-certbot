@@ -116,7 +116,7 @@ docker build --build-arg SGLANG_VERSION=v0.5.21 \
 | `RUNPOD_PUBLIC_IP` | sim (auto-injetada pela RunPod) | — | IP público atual do pod (TCP direto) |
 | `SGLANG_CONTAINER_PORT` | não | `8000` | Porta interna do SGLang — usada só pra logar a porta pública lida de `RUNPOD_TCP_PORT_<essa porta>` (auto-injetada); nenhuma chamada de API envolvida |
 | `CLOUDFLARE_ZONE_ID` | não | auto-resolvido via API | Override pra domínios com mais de 2 níveis |
-| `CERT_PERSIST_DIR` | não | `/workspace/certbot` | Diretório persistente (volume RunPod) com config/work/logs do certbot + cloudflare.ini |
+| `CERT_PERSIST_DIR` | não | `/workspace/certbot` | Diretório persistente (volume RunPod) onde fica `<SGLANG_TLS_DOMAIN>.tar.gz` com o estado do certbot. O certbot roda em `/root/certbot` (disco do container) porque o network volume da RunPod não aceita `chmod 600`/symlinks; o volume só guarda o tar.gz |
 | `CERT_RENEW_INTERVAL_SECONDS` | não | `43200` (12h) | Intervalo do loop de renovação em background |
 
 Exportadas pelo entrypoint (output, pro comando do usuário consumir):
@@ -136,7 +136,7 @@ dig +short <seu-domínio>
 ```
 
 Restart do pod: A record é atualizado automaticamente no próximo start;
-certificado existente em `CERT_PERSIST_DIR` (persistente) é reaproveitado
+certificado salvo em `CERT_PERSIST_DIR/<domínio>.tar.gz` (persistente) é restaurado e reaproveitado
 (renovado, não reemitido) enquanto ainda válido.
 
 ## Verificação end-to-end (antes de ir pra produção)
@@ -145,5 +145,5 @@ certificado existente em `CERT_PERSIST_DIR` (persistente) é reaproveitado
 2. `shellcheck proxy/image/entrypoint.sh`.
 3. Rodar o container sem GPU com comando trivial (`-- echo ok`) e env vars reais apontando pra uma zona/domínio de teste descartável na Cloudflare — exercita a chamada real à API e emissão DNS-01 (não precisa de porta 80 nem GPU).
 4. Testes negativos: faltando env var obrigatória → falha rápido com mensagem clara; `CLOUDFLARE_API_TOKEN` inválido sem cert persistido → aborta com erro claro, não trava.
-5. Teste de idempotência: rodar 2x com `CERT_PERSIST_DIR` montado como volume local — 2ª vez pula emissão, vai direto pro `certbot renew` (no-op).
+5. Teste de idempotência: rodar 2x com `CERT_PERSIST_DIR` montado como volume local — 2ª vez restaura o tar.gz, pula emissão e vai direto pro `certbot renew` (no-op).
 6. No RunPod real: conferir nos logs o update de A record, emissão de cert, export das env vars, SGLang subindo com SSL. `curl -v https://<seu-domínio>:<porta>/health` confirma handshake TLS válido. Restart do pod confirma reaproveitamento do cert + A record atualizado pro novo IP.
