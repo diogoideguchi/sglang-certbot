@@ -5,7 +5,7 @@
 set -euo pipefail
 
 REGISTRY_IMAGE="${REGISTRY_IMAGE:-hantonio/sglang-certbot}"
-SGLANG_VERSION="${SGLANG_VERSION:-v0.5.21}"
+SGLANG_VERSION="${SGLANG_VERSION:-v0.5.22}"
 BUILD_TAG="sglang-certbot:build-tmp"
 
 cd "$(dirname "$0")"

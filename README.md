@@ -41,7 +41,7 @@ Pod RunPod — imagem custom (lmsysorg/sglang + certbot embutido)
 ## Build e publicação
 
 Imagem publicada como `hantonio/sglang-certbot:<versão sglang>.<versão certbot>`
-(ex. `hantonio/sglang-certbot:0.5.21.2.9.0`), sempre lendo as versões reais
+(ex. `hantonio/sglang-certbot:0.5.22.2.9.0`), sempre lendo as versões reais
 de dentro da imagem já buildada (sglang via `pip show sglang`, certbot via
 `certbot --version`) — nunca digitadas à mão.
 
@@ -66,7 +66,7 @@ versões → tag) sem publicar:
 Build manual (sem tag automática):
 
 ```bash
-docker build --build-arg SGLANG_VERSION=v0.5.21 \
+docker build --build-arg SGLANG_VERSION=v0.5.22 \
   -t <seu-registry>/sglang-certbot:dev -f proxy/image/Dockerfile proxy/image/
 ```
 
